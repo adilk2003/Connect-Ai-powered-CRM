@@ -1,0 +1,58 @@
+{
+  "user": {
+    "name": "Adil",
+    "email": "kingadilkumar@gmail.com",
+    "title": "Pro Plan",
+    "avatar": "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-1.2.1&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"
+  },
+  "contacts": [
+    {
+      "id": "1763792496895",
+      "createdAt": "2025-11-22T06:21:36.895Z",
+      "status": "Active",
+      "name": "Adil",
+      "email": "kingadilkumar@Gmail.com",
+      "phone": "9391898963",
+      "company": "indico",
+      "role": "SD"
+    }
+  ],
+  "leads": [],
+  "tasks": [],
+  "events": [
+    {
+      "id": "1763792718236",
+      "createdAt": "2025-11-22T06:25:18.236Z",
+      "date": "2025-11-27",
+      "type": "meeting",
+      "title": "hello"
+    }
+  ],
+  "documents": [],
+  "emails": [],
+  "users": [
+    {
+      "id": "1763913178888",
+      "name": "Adil",
+      "email": "kingadilkumar@gmail.com",
+      "password": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92",
+      "title": "Pro Plan",
+      "avatar": "https://ui-avatars.com/api/?name=Adil&background=random"
+    },
+    {
+      "id": "1763913216265",
+      "name": "Rasi",
+      "email": "rasi@gmail.com",
+      "password": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92",
+      "title": "Pro Plan",
+      "avatar": "https://ui-avatars.com/api/?name=Rasi&background=random"
+    }
+  ],
+  "sessions": [
+    {
+      "token": "0987e3293cd3c8482cfdec22f1ef3300188e26ad3bc479184508694ca7ffd774",
+      "userId": "1763913216265",
+      "expires": 1763999616265
+    }
+  ]
+}
