@@ -1,6 +1,9 @@
 
 import { Contact, Lead, Task, CalendarEvent, Document, Email, UserProfile } from '../types';
 
+// Set this to your Render backend URL
+const RENDER_URL = 'https://connect-ai-powered-crm.onrender.com/api';
+
 // Safe environment variable access
 const getEnvVar = (key: string): string | undefined => {
   try {
@@ -10,18 +13,13 @@ const getEnvVar = (key: string): string | undefined => {
   }
 };
 
-// Determine API URL:
-// We default to the deployed Render backend to ensure reliable connection and avoid local port/proxy issues.
-let API_URL = 'https://connect-ai-powered-crm.onrender.com/api';
+let API_URL = RENDER_URL;
 
-try {
-  if (getEnvVar('VITE_API_URL')) {
+// If running locally (dev), prefer localhost, otherwise fallback to Render or Env var
+if (getEnvVar('DEV')) {
+    API_URL = '/api'; // Use proxy in local dev
+} else if (getEnvVar('VITE_API_URL')) {
     API_URL = getEnvVar('VITE_API_URL')!;
-  } 
-  // Note: Localhost fallback removed to force connection to the live server as requested.
-  // If you want to use local server, set VITE_API_URL='http://localhost:10000/api' in .env
-} catch (e) {
-  console.warn("Could not determine environment, using default API URL");
 }
 
 console.log("Using API URL:", API_URL);
@@ -30,32 +28,32 @@ console.log("Using API URL:", API_URL);
 async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('authToken');
   
-  const headers = {
+  const headers: any = {
     'Content-Type': 'application/json',
-    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
     ...options.headers,
   };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
 
   try {
     const response = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
     
-    // Check if the response is actually JSON before parsing
     const contentType = response.headers.get("content-type");
     if (!contentType || contentType.indexOf("application/json") === -1) {
+        // If we get HTML instead of JSON, it usually means 404/500 from web server wrapper
+        // or auth failure redirect (though API shouldn't redirect)
         const text = await response.text();
-        console.error(`API Error: Received non-JSON response from ${endpoint}. Status: ${response.status}. Preview: ${text.substring(0, 100)}...`);
-        // In demo/no-auth mode, failures to connect shouldn't hard crash if possible, but for data fetches we throw.
-        throw new Error("Unable to connect to server. The backend might be sleeping or unreachable.");
-    }
-
-    if (response.status === 401) {
-        // Unauthorized - In demo mode this shouldn't happen if server is updated, 
-        // but if it does, we just clear token.
-        localStorage.removeItem('authToken');
+        throw new Error(`Server returned non-JSON response. Status: ${response.status}`);
     }
 
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        // If 401 Unauthorized, maybe clear token?
+        if (response.status === 401) {
+            localStorage.removeItem('authToken');
+        }
         throw new Error(errorData.message || `API Error: ${response.statusText}`);
     }
     
@@ -69,42 +67,34 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
 export const dataService = {
   // --- AUTH ---
   login: async (email: string, password: string): Promise<{ user: UserProfile, token: string }> => {
-      // Mock success for demo mode if called
-      return { 
-          user: { name: 'Demo User', email, title: 'Pro Plan', avatar: '' }, 
-          token: 'demo-token' 
-      };
+      return fetchAPI('/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ email, password })
+      });
   },
 
   signup: async (name: string, email: string, password: string): Promise<{ user: UserProfile, token: string }> => {
-      // Mock success for demo mode
-      return { 
-          user: { name, email, title: 'Pro Plan', avatar: '' }, 
-          token: 'demo-token' 
-      };
+      return fetchAPI('/auth/signup', {
+          method: 'POST',
+          body: JSON.stringify({ name, email, password })
+      });
   },
 
   logout: async () => {
      try {
         await fetchAPI('/auth/logout', { method: 'POST' });
      } catch(e) {
-         // Ignore logout errors in demo mode
+         // Ignore logout errors
      }
      localStorage.removeItem('authToken');
   },
 
   // --- USER ---
-  getUser: async (): Promise<UserProfile> => {
+  getUser: async (): Promise<UserProfile | null> => {
       try {
         return await fetchAPI<UserProfile>('/user');
       } catch (e) {
-        console.warn("Fetch user failed, returning demo profile");
-        return {
-            name: 'Demo User',
-            email: 'demo@example.com',
-            title: 'Pro Plan',
-            avatar: 'https://ui-avatars.com/api/?name=Demo+User&background=0D8ABC&color=fff'
-        };
+        return null;
       }
   },
   updateUser: async (data: UserProfile) => fetchAPI<UserProfile>('/user', { method: 'PUT', body: JSON.stringify(data) }),
