@@ -10,7 +10,6 @@ import crypto from 'crypto';
 dotenv.config();
 
 const app = express();
-// Changed default port to 10000 to match the user's running configuration
 const PORT = process.env.PORT || 10000;
 
 // Setup path for local database file
@@ -18,7 +17,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DB_FILE = path.join(__dirname, 'db.json');
 
-// Enable CORS for all origins to ensure Vercel frontend can connect to Render backend
+// Enable CORS
 app.use(cors({
     origin: '*', 
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
@@ -39,7 +38,6 @@ const INITIAL_DATA = {
 };
 
 // --- FILE DB INITIALIZATION ---
-// This acts as a simple NoSQL document store using a JSON file.
 if (!fs.existsSync(DB_FILE)) {
     fs.writeFileSync(DB_FILE, JSON.stringify(INITIAL_DATA, null, 2));
     console.log('📁 Created new local database file: db.json');
@@ -50,10 +48,7 @@ const readDB = () => {
     try {
         const data = fs.readFileSync(DB_FILE, 'utf8');
         const parsed = JSON.parse(data);
-        
         let needsSave = false;
-        
-        // Ensure all required collections exist
         const collections = ['users', 'sessions', 'contacts', 'leads', 'tasks', 'events', 'documents', 'emails'];
         collections.forEach(key => {
             if (!parsed[key]) {
@@ -61,11 +56,9 @@ const readDB = () => {
                 needsSave = true;
             }
         });
-
         if (needsSave) {
             fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2));
         }
-
         return parsed;
     } catch (err) {
         console.error("Error reading DB:", err);
@@ -81,56 +74,37 @@ const writeDB = (data) => {
     }
 };
 
-// Security: Hash passwords using SHA-256 before storing them.
-const hashPassword = (password) => crypto.createHash('sha256').update(password).digest('hex');
+const hashPassword = (password) => {
+    return crypto.createHash('sha256').update(password).digest('hex');
+};
 
-// Generate a random 32-byte hex token for session management
 const generateToken = () => crypto.randomBytes(32).toString('hex');
 
 // --- AUTHENTICATION MIDDLEWARE ---
-// MODIFIED FOR DEMO: This middleware is now permissive.
-// If a token is provided, it tries to use it. If not, it assigns a default 'demo-user'.
 const authenticate = (req, res, next) => {
     const authHeader = req.headers.authorization;
-    let session = null;
+    if (!authHeader) {
+        return res.status(401).json({ message: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    if (!token) {
+        return res.status(401).json({ message: 'Invalid token format' });
+    }
+
     const db = readDB();
+    // Simple session cleanup (remove expired sessions)
+    const now = Date.now();
+    db.sessions = db.sessions.filter(s => s.expiresAt > now);
+    writeDB(db);
 
-    if (authHeader) {
-        // Expecting "Bearer <token>"
-        const token = authHeader.split(' ')[1];
-        if (token) {
-            // Session Garbage Collection
-            const now = Date.now();
-            const activeSessions = db.sessions.filter(s => s.expires > now);
-            if (activeSessions.length !== db.sessions.length) {
-                db.sessions = activeSessions;
-                writeDB(db);
-            }
-            session = activeSessions.find(s => s.token === token);
-        }
-    }
-
-    if (session) {
-        // Real authenticated user
-        req.userId = session.userId;
-    } else {
-        // Demo mode fallback: If no valid token, assume it's the demo user.
-        // This allows the frontend to be deployed without forcing a login screen.
-        req.userId = 'demo-user-id';
-        
-        // Ensure demo user exists in DB so lookups don't fail
-        if (!db.users.find(u => u.id === 'demo-user-id')) {
-             db.users.push({
-                 id: 'demo-user-id',
-                 name: 'Demo User',
-                 email: 'demo@example.com',
-                 title: 'Pro Plan',
-                 avatar: 'https://ui-avatars.com/api/?name=Demo+User&background=0D8ABC&color=fff'
-             });
-             writeDB(db);
-        }
-    }
+    const session = db.sessions.find(s => s.token === token);
     
+    if (!session) {
+        return res.status(401).json({ message: 'Invalid or expired token' });
+    }
+
+    req.userId = session.userId;
     next();
 };
 
@@ -138,59 +112,107 @@ const authenticate = (req, res, next) => {
 
 app.post('/api/auth/signup', (req, res) => {
     const { name, email, password } = req.body;
-    // ... logic remains but is less critical in demo mode ...
-    // Simplified for demo stability
+    
+    if (!name || !email || !password) {
+        return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    const db = readDB();
+    
+    if (db.users.find(u => u.email === email)) {
+        return res.status(400).json({ message: 'User already exists' });
+    }
+
+    const newUser = {
+        id: Date.now().toString(),
+        name,
+        email,
+        password: hashPassword(password),
+        title: 'Free Plan',
+        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`,
+        createdAt: new Date().toISOString()
+    };
+
+    db.users.push(newUser);
+    
+    // Auto login
     const token = generateToken();
-    res.status(201).json({ user: { id: 'demo-user-id', name, email }, token });
+    const expiresAt = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
+    db.sessions.push({ token, userId: newUser.id, expiresAt });
+    
+    writeDB(db);
+    
+    res.status(201).json({ 
+        user: { id: newUser.id, name: newUser.name, email: newUser.email, title: newUser.title, avatar: newUser.avatar }, 
+        token 
+    });
 });
 
 app.post('/api/auth/login', (req, res) => {
-     // ... logic remains but is less critical in demo mode ...
+    const { email, password } = req.body;
+    const db = readDB();
+    
+    const user = db.users.find(u => u.email === email && u.password === hashPassword(password));
+    
+    if (!user) {
+        return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
     const token = generateToken();
-    res.json({ user: { id: 'demo-user-id', name: 'Demo User', email: 'demo@example.com' }, token });
+    const expiresAt = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
+    
+    db.sessions.push({ token, userId: user.id, expiresAt });
+    writeDB(db);
+
+    res.json({ 
+        user: { id: user.id, name: user.name, email: user.email, title: user.title, avatar: user.avatar }, 
+        token 
+    });
 });
 
 app.post('/api/auth/logout', (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+        const token = authHeader.split(' ')[1];
+        const db = readDB();
+        db.sessions = db.sessions.filter(s => s.token !== token);
+        writeDB(db);
+    }
     res.json({ success: true });
 });
 
-// Get current user profile
 app.get('/api/user', authenticate, (req, res) => {
     const db = readDB();
     const user = db.users.find(u => u.id === req.userId);
-    // Fallback if user somehow missing
-    if (!user) {
-         return res.json({
-             id: 'demo-user-id',
-             name: 'Demo User',
-             email: 'demo@example.com',
-             title: 'Pro Plan',
-             avatar: 'https://ui-avatars.com/api/?name=Demo+User&background=0D8ABC&color=fff'
-         });
-    }
-
-    const { password: _, ...userWithoutPassword } = user;
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    const { password, ...userWithoutPassword } = user;
     res.json(userWithoutPassword);
 });
 
-// Update user profile
 app.put('/api/user', authenticate, (req, res) => {
     const db = readDB();
     const userIndex = db.users.findIndex(u => u.id === req.userId);
     
-    if (userIndex !== -1) {
-        const { password, id, ...updates } = req.body;
-        db.users[userIndex] = { ...db.users[userIndex], ...updates };
-        writeDB(db);
-        const { password: _, ...userWithoutPassword } = db.users[userIndex];
-        return res.json(userWithoutPassword);
-    }
+    if (userIndex === -1) return res.status(404).json({ message: 'User not found' });
+
+    const { name, title, avatar } = req.body;
     
-    res.json(req.body); // Echo back for demo if not found
+    // Only update allowed fields
+    db.users[userIndex] = {
+        ...db.users[userIndex],
+        name: name || db.users[userIndex].name,
+        title: title || db.users[userIndex].title,
+        avatar: avatar || db.users[userIndex].avatar
+    };
+    
+    writeDB(db);
+    
+    const { password, ...userWithoutPassword } = db.users[userIndex];
+    res.json(userWithoutPassword);
 });
 
-
-// --- GENERIC CRUD HANDLERS (Protected by Data Isolation) ---
+// --- GENERIC CRUD HANDLERS ---
 const createHandlers = (collectionName) => {
     return {
         getAll: (req, res) => {
@@ -217,10 +239,7 @@ const createHandlers = (collectionName) => {
             const db = readDB();
             const list = db[collectionName] || [];
             const index = list.findIndex(item => item.id === req.params.id && item.userId === req.userId);
-            
-            if (index === -1) {
-                return res.status(404).json({ message: 'Not found or access denied' });
-            }
+            if (index === -1) return res.status(404).json({ message: 'Not found' });
 
             const { userId, id, createdAt, ...updates } = req.body;
             list[index] = { ...list[index], ...updates };
@@ -232,10 +251,7 @@ const createHandlers = (collectionName) => {
             const db = readDB();
             const list = db[collectionName] || [];
             const filteredList = list.filter(item => !(item.id === req.params.id && item.userId === req.userId));
-
-            if (list.length === filteredList.length) {
-                return res.status(404).json({ message: 'Not found or access denied' });
-            }
+            if (list.length === filteredList.length) return res.status(404).json({ message: 'Not found' });
 
             db[collectionName] = filteredList;
             writeDB(db);
@@ -244,7 +260,6 @@ const createHandlers = (collectionName) => {
     };
 };
 
-// Define handlers
 const contacts = createHandlers('contacts');
 const leads = createHandlers('leads');
 const tasks = createHandlers('tasks');
@@ -252,10 +267,8 @@ const events = createHandlers('events');
 const documents = createHandlers('documents');
 const emails = createHandlers('emails');
 
-// Register Routes
 app.get('/', (req, res) => res.send('CRM API is running!'));
 
-// Protected Routes (Now accessible via demo mode)
 app.get('/api/contacts', authenticate, contacts.getAll);
 app.post('/api/contacts', authenticate, contacts.create);
 app.put('/api/contacts/:id', authenticate, contacts.update);
