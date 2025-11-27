@@ -17,7 +17,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DB_FILE = path.join(__dirname, 'db.json');
 
-app.use(cors());
+// Enable CORS for all origins to ensure Vercel frontend can connect to Render backend
+app.use(cors({
+    origin: '*', 
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 
 const INITIAL_DATA = {
@@ -32,6 +38,7 @@ const INITIAL_DATA = {
 };
 
 // --- FILE DB INITIALIZATION ---
+// This acts as a simple NoSQL document store using a JSON file.
 if (!fs.existsSync(DB_FILE)) {
     fs.writeFileSync(DB_FILE, JSON.stringify(INITIAL_DATA, null, 2));
     console.log('📁 Created new local database file: db.json');
@@ -45,8 +52,9 @@ const readDB = () => {
         
         let needsSave = false;
         
-        // Ensure arrays exist
-        ['users', 'sessions', 'contacts', 'leads', 'tasks', 'events', 'documents', 'emails'].forEach(key => {
+        // Ensure all required collections exist
+        const collections = ['users', 'sessions', 'contacts', 'leads', 'tasks', 'events', 'documents', 'emails'];
+        collections.forEach(key => {
             if (!parsed[key]) {
                 parsed[key] = [];
                 needsSave = true;
@@ -72,22 +80,40 @@ const writeDB = (data) => {
     }
 };
 
+// Security: Hash passwords using SHA-256 before storing them.
 const hashPassword = (password) => crypto.createHash('sha256').update(password).digest('hex');
+
+// Generate a random 32-byte hex token for session management
 const generateToken = () => crypto.randomBytes(32).toString('hex');
 
-// --- MIDDLEWARE ---
+// --- AUTHENTICATION MIDDLEWARE ---
+// This middleware intercepts protected requests, validates the bearer token,
+// and attaches the `userId` to the request object for data isolation.
 const authenticate = (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ message: 'No token provided' });
 
+    // Expecting "Bearer <token>"
     const token = authHeader.split(' ')[1];
     if (!token) return res.status(401).json({ message: 'Malformed token' });
 
     const db = readDB();
-    const session = db.sessions.find(s => s.token === token && s.expires > Date.now());
+    
+    // Session Garbage Collection: Remove expired sessions
+    const now = Date.now();
+    const activeSessions = db.sessions.filter(s => s.expires > now);
+    
+    // Optimistic write: Only update DB if we actually removed something to save I/O
+    if (activeSessions.length !== db.sessions.length) {
+        db.sessions = activeSessions;
+        writeDB(db);
+    }
+
+    const session = activeSessions.find(s => s.token === token);
 
     if (!session) return res.status(401).json({ message: 'Invalid or expired token' });
 
+    // Success: Attach User ID to request so subsequent handlers know who owns the data
     req.userId = session.userId;
     next();
 };
@@ -100,6 +126,7 @@ app.post('/api/auth/signup', (req, res) => {
 
     const db = readDB();
     
+    // Check if user exists
     if (db.users.find(u => u.email === email)) {
         return res.status(400).json({ message: 'User already exists' });
     }
@@ -108,19 +135,20 @@ app.post('/api/auth/signup', (req, res) => {
         id: Date.now().toString(),
         name,
         email,
-        password: hashPassword(password),
+        password: hashPassword(password), // Store hashed password
         title: "Pro Plan",
-        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`
+        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&color=fff&background=0D8ABC`
     };
 
     db.users.push(newUser);
     
-    // Create session
+    // Create new session
     const token = generateToken();
-    db.sessions.push({ token, userId: newUser.id, expires: Date.now() + 86400000 }); // 24h
+    db.sessions.push({ token, userId: newUser.id, expires: Date.now() + 86400000 }); // 24h Expiry
     
     writeDB(db);
     
+    // Return user info without password
     const { password: _, ...userWithoutPassword } = newUser;
     res.status(201).json({ user: userWithoutPassword, token });
 });
@@ -137,7 +165,7 @@ app.post('/api/auth/login', (req, res) => {
     }
 
     const token = generateToken();
-    // Use a fresh session
+    // Create a new session for this login
     db.sessions.push({ token, userId: user.id, expires: Date.now() + 86400000 });
     writeDB(db);
 
@@ -149,12 +177,14 @@ app.post('/api/auth/logout', (req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
     if (token) {
         const db = readDB();
+        // Remove the specific session token
         db.sessions = db.sessions.filter(s => s.token !== token);
         writeDB(db);
     }
     res.json({ success: true });
 });
 
+// Get current user profile
 app.get('/api/user', authenticate, (req, res) => {
     const db = readDB();
     const user = db.users.find(u => u.id === req.userId);
@@ -164,12 +194,13 @@ app.get('/api/user', authenticate, (req, res) => {
     res.json(userWithoutPassword);
 });
 
+// Update user profile
 app.put('/api/user', authenticate, (req, res) => {
     const db = readDB();
     const userIndex = db.users.findIndex(u => u.id === req.userId);
     if (userIndex === -1) return res.status(404).json({ message: 'User not found' });
 
-    // Update fields (prevent password update here for now)
+    // Prevent updating critical fields like password or ID directly via this route
     const { password, id, ...updates } = req.body;
     
     db.users[userIndex] = { ...db.users[userIndex], ...updates };
@@ -180,14 +211,16 @@ app.put('/api/user', authenticate, (req, res) => {
 });
 
 
-// --- GENERIC CRUD HANDLERS (Protected by User) ---
+// --- GENERIC CRUD HANDLERS (Protected by Data Isolation) ---
+// This factory function creates CRUD handlers that automatically enforce ownership checks.
+// Users can only access, modify, or delete items where item.userId === req.userId.
 
 const createHandlers = (collectionName) => {
     return {
         getAll: (req, res) => {
             const db = readDB();
             const list = db[collectionName] || [];
-            // Filter by authenticated user ID
+            // Filter by authenticated user ID (Data Isolation)
             const userItems = list.filter(item => item.userId === req.userId);
             res.json(userItems);
         },
@@ -196,7 +229,7 @@ const createHandlers = (collectionName) => {
             const newItem = { 
                 id: Date.now().toString(), 
                 createdAt: new Date().toISOString(), 
-                userId: req.userId, // Associate with current user
+                userId: req.userId, // Automatically associate new item with current user
                 ...req.body 
             }; 
             if (!db[collectionName]) db[collectionName] = [];
@@ -207,7 +240,7 @@ const createHandlers = (collectionName) => {
         update: (req, res) => {
             const db = readDB();
             const list = db[collectionName] || [];
-            // Ensure ownership
+            // Ensure ownership: User can only update their own items
             const index = list.findIndex(item => item.id === req.params.id && item.userId === req.userId);
             
             if (index === -1) {
@@ -223,7 +256,7 @@ const createHandlers = (collectionName) => {
         delete: (req, res) => {
             const db = readDB();
             const list = db[collectionName] || [];
-            // Ensure ownership
+            // Ensure ownership before deleting
             const filteredList = list.filter(item => !(item.id === req.params.id && item.userId === req.userId));
 
             if (list.length === filteredList.length) {
@@ -278,11 +311,7 @@ app.post('/api/emails', authenticate, emails.create);
 app.put('/api/emails/:id', authenticate, emails.update);
 app.delete('/api/emails/:id', authenticate, emails.delete);
 
-// app.listen(PORT, () => {
-//     console.log(`\n✅ Server running on http://localhost:${PORT}`);
-//     console.log(`📦 Using Local Database File: ${DB_FILE}`);
-// });
-
-app.listen(3000, "0.0.0.0", () => {
-  console.log("Server is running on http://0.0.0.0:3000");
+app.listen(PORT, () => {
+    console.log(`\n✅ Server running on http://localhost:${PORT}`);
+    console.log(`📦 Using Local Database File: ${DB_FILE}`);
 });
