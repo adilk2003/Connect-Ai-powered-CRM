@@ -11,62 +11,39 @@ import Documents from './components/Documents';
 import Reports from './components/Reports';
 import Settings from './components/Settings';
 import Email from './components/Email';
-import LoginPage from './components/LoginPage';
-import SignupPage from './components/SignupPage';
 import InviteTeamModal from './components/InviteTeamModal';
 import AiAssistant from './components/AiAssistant';
 import { View, UserProfile } from './types';
 import { ToastProvider } from './components/Toast';
 import { dataService } from './services/dataService';
+import { LogoIcon } from './components/icons/LogoIcon';
 
 const App: React.FC = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authPage, setAuthPage] = useState<'login' | 'signup'>('login');
   const [currentView, setCurrentView] = useState<View>('Dashboard');
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
-  // Global User State
+  // Global User State - Default to Demo User
   const [userProfile, setUserProfile] = useState<UserProfile>({
-      name: 'Loading...',
-      email: '...',
-      title: '...',
-      avatar: ''
+      name: 'Demo User',
+      email: 'demo@example.com',
+      title: 'Pro Plan',
+      avatar: 'https://ui-avatars.com/api/?name=Demo+User&background=0D8ABC&color=fff'
   });
 
   useEffect(() => {
-    checkAuth();
+    loadUserProfile();
   }, []);
-
-  const checkAuth = async () => {
-    const token = localStorage.getItem('authToken');
-    if (token) {
-        try {
-             await loadUserProfile();
-             setIsAuthenticated(true);
-        } catch (error) {
-            console.error("Auth check failed:", error);
-            localStorage.removeItem('authToken');
-            setIsAuthenticated(false);
-        }
-    } else {
-        setIsAuthenticated(false);
-    }
-  };
 
   const loadUserProfile = async () => {
       try {
+          // Attempt to fetch real profile from backend if available
           const profile = await dataService.getUser();
-          
           if (profile && profile.name) {
              setUserProfile(profile);
-          } else {
-             // If we have a token but getting user failed (e.g. user deleted on backend), we should fail
-             throw new Error("Invalid profile data");
           }
       } catch (e) {
-          console.error("Failed to load user profile", e);
-          throw e; // Propagate to checkAuth to handle logout
+          console.warn("Using default demo profile as backend is unavailable or auth is disabled.");
       }
   };
 
@@ -99,16 +76,9 @@ const App: React.FC = () => {
     }
   };
 
-  const handleAuthSuccess = async () => {
-    await checkAuth();
-    setCurrentView('Dashboard');
-  };
-  
   const handleLogout = async () => {
-    await dataService.logout();
-    setIsAuthenticated(false);
-    setAuthPage('login');
-    setUserProfile({ name: '', email: '', title: '', avatar: '' });
+    // For demo mode, just reload the page to reset state
+    window.location.reload();
   }
 
   const MainContent = () => (
@@ -157,15 +127,7 @@ const App: React.FC = () => {
 
   return (
     <ToastProvider>
-      {!isAuthenticated ? (
-        authPage === 'login' ? (
-          <LoginPage onSwitchToSignup={() => setAuthPage('signup')} onLogin={handleAuthSuccess} />
-        ) : (
-          <SignupPage onSwitchToLogin={() => setAuthPage('login')} onSignup={handleAuthSuccess} />
-        )
-      ) : (
         <MainContent />
-      )}
     </ToastProvider>
   );
 };
