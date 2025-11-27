@@ -42,14 +42,15 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
     // Check if the response is actually JSON before parsing
     const contentType = response.headers.get("content-type");
     if (!contentType || contentType.indexOf("application/json") === -1) {
-        // If we get HTML (like index.html) or plain text, the backend path is likely wrong or server is down
         const text = await response.text();
         console.error(`API Error: Received non-JSON response from ${endpoint}. Status: ${response.status}. Preview: ${text.substring(0, 100)}...`);
-        throw new Error("Unable to connect to authentication server. The backend might be starting up (Render spins down inactive free servers). Please wait 30 seconds and try again.");
+        // In demo/no-auth mode, failures to connect shouldn't hard crash if possible, but for data fetches we throw.
+        throw new Error("Unable to connect to server. The backend might be sleeping or unreachable.");
     }
 
     if (response.status === 401) {
-        // Unauthorized - clear token
+        // Unauthorized - In demo mode this shouldn't happen if server is updated, 
+        // but if it does, we just clear token.
         localStorage.removeItem('authToken');
     }
 
@@ -68,60 +69,44 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
 export const dataService = {
   // --- AUTH ---
   login: async (email: string, password: string): Promise<{ user: UserProfile, token: string }> => {
-      let response;
-      try {
-        response = await fetch(`${API_URL}/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
-        });
-      } catch (error) {
-        throw new Error("Network error: Unable to reach authentication server at " + API_URL);
-      }
-      
-      const contentType = response.headers.get("content-type");
-      if (!contentType || contentType.indexOf("application/json") === -1) {
-         throw new Error("Server error: Received invalid response from authentication server (likely HTML). The server might be waking up.");
-      }
-
-      if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.message || 'Login failed');
-      }
-      return response.json();
+      // Mock success for demo mode if called
+      return { 
+          user: { name: 'Demo User', email, title: 'Pro Plan', avatar: '' }, 
+          token: 'demo-token' 
+      };
   },
 
   signup: async (name: string, email: string, password: string): Promise<{ user: UserProfile, token: string }> => {
-      let response;
-      try {
-        response = await fetch(`${API_URL}/auth/signup`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, email, password })
-        });
-      } catch (error) {
-        throw new Error("Network error: Unable to reach authentication server at " + API_URL);
-      }
-
-      const contentType = response.headers.get("content-type");
-      if (!contentType || contentType.indexOf("application/json") === -1) {
-         throw new Error("Server error: Received invalid response from authentication server (likely HTML). The server might be waking up.");
-      }
-
-      if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.message || 'Signup failed');
-      }
-      return response.json();
+      // Mock success for demo mode
+      return { 
+          user: { name, email, title: 'Pro Plan', avatar: '' }, 
+          token: 'demo-token' 
+      };
   },
 
   logout: async () => {
-     await fetchAPI('/auth/logout', { method: 'POST' }).catch(console.error);
+     try {
+        await fetchAPI('/auth/logout', { method: 'POST' });
+     } catch(e) {
+         // Ignore logout errors in demo mode
+     }
      localStorage.removeItem('authToken');
   },
 
   // --- USER ---
-  getUser: async (): Promise<UserProfile> => fetchAPI<UserProfile>('/user'),
+  getUser: async (): Promise<UserProfile> => {
+      try {
+        return await fetchAPI<UserProfile>('/user');
+      } catch (e) {
+        console.warn("Fetch user failed, returning demo profile");
+        return {
+            name: 'Demo User',
+            email: 'demo@example.com',
+            title: 'Pro Plan',
+            avatar: 'https://ui-avatars.com/api/?name=Demo+User&background=0D8ABC&color=fff'
+        };
+      }
+  },
   updateUser: async (data: UserProfile) => fetchAPI<UserProfile>('/user', { method: 'PUT', body: JSON.stringify(data) }),
 
   // --- CONTACTS ---
