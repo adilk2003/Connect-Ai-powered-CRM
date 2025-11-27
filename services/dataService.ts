@@ -10,9 +10,24 @@ const getEnvVar = (key: string): string | undefined => {
   }
 };
 
-// Use environment variable for production.
-// Default to the deployed Render backend to ensure connectivity.
-const API_URL = getEnvVar('VITE_API_URL') || 'https://connect-ai-powered-crm.onrender.com/api';
+// Determine API URL:
+// 1. Production/Deployment: Use VITE_API_URL or fallback to Render.
+// 2. Development: Use localhost:10000 directly to avoid proxy issues and "HTML response" errors.
+let API_URL = 'https://connect-ai-powered-crm.onrender.com/api';
+
+try {
+  if (getEnvVar('VITE_API_URL')) {
+    API_URL = getEnvVar('VITE_API_URL')!;
+  } else if ((import.meta as any).env.DEV) {
+    // Explicitly target the local server port user specified (10000)
+    API_URL = 'http://localhost:10000/api';
+  }
+} catch (e) {
+  // Fallback to Render if environment checks fail
+  console.warn("Could not determine environment, using default API URL");
+}
+
+console.log("Using API URL:", API_URL);
 
 // Helper to handle API errors gracefully
 async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -32,8 +47,8 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
     if (!contentType || contentType.indexOf("application/json") === -1) {
         // If we get HTML (like index.html) or plain text, the backend path is likely wrong or server is down
         const text = await response.text();
-        console.error(`API Error: Received non-JSON response from ${endpoint}. Preview: ${text.substring(0, 50)}...`);
-        throw new Error("Unable to connect to server. Please ensure the backend is running.");
+        console.error(`API Error: Received non-JSON response from ${endpoint}. Status: ${response.status}. Preview: ${text.substring(0, 100)}...`);
+        throw new Error("Unable to connect to authentication server. Please ensure the backend (port 10000) is running.");
     }
 
     if (response.status === 401) {
@@ -65,12 +80,12 @@ export const dataService = {
             body: JSON.stringify({ email, password })
         });
       } catch (error) {
-        throw new Error("Network error: Unable to reach authentication server. Is it running?");
+        throw new Error("Network error: Unable to reach authentication server at " + API_URL + ". Is it running?");
       }
       
       const contentType = response.headers.get("content-type");
       if (!contentType || contentType.indexOf("application/json") === -1) {
-         throw new Error("Server error: Received invalid response from authentication server (likely HTML).");
+         throw new Error("Server error: Received invalid response from authentication server (likely HTML). Check API URL.");
       }
 
       if (!response.ok) {
@@ -89,12 +104,12 @@ export const dataService = {
             body: JSON.stringify({ name, email, password })
         });
       } catch (error) {
-        throw new Error("Network error: Unable to reach authentication server. Is it running?");
+        throw new Error("Network error: Unable to reach authentication server at " + API_URL + ". Is it running?");
       }
 
       const contentType = response.headers.get("content-type");
       if (!contentType || contentType.indexOf("application/json") === -1) {
-         throw new Error("Server error: Received invalid response from authentication server.");
+         throw new Error("Server error: Received invalid response from authentication server (likely HTML). Check API URL.");
       }
 
       if (!response.ok) {
