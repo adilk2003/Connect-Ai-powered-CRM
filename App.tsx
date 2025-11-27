@@ -13,42 +13,65 @@ import Settings from './components/Settings';
 import Email from './components/Email';
 import InviteTeamModal from './components/InviteTeamModal';
 import AiAssistant from './components/AiAssistant';
+import LoginPage from './components/LoginPage';
+import SignupPage from './components/SignupPage';
 import { View, UserProfile } from './types';
 import { ToastProvider } from './components/Toast';
 import { dataService } from './services/dataService';
 import { LogoIcon } from './components/icons/LogoIcon';
 
 const App: React.FC = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [authPage, setAuthPage] = useState<'login' | 'signup'>('login');
+  
   const [currentView, setCurrentView] = useState<View>('Dashboard');
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
-  // Global User State - Default to Demo User
   const [userProfile, setUserProfile] = useState<UserProfile>({
-      name: 'Demo User',
-      email: 'demo@example.com',
-      title: 'Pro Plan',
-      avatar: 'https://ui-avatars.com/api/?name=Demo+User&background=0D8ABC&color=fff'
+      name: '',
+      email: '',
+      title: '',
+      avatar: ''
   });
 
   useEffect(() => {
-    loadUserProfile();
+    checkAuth();
   }, []);
 
-  const loadUserProfile = async () => {
-      try {
-          // Attempt to fetch real profile from backend if available
-          const profile = await dataService.getUser();
-          if (profile && profile.name) {
-             setUserProfile(profile);
-          }
-      } catch (e) {
-          console.warn("Using default demo profile as backend is unavailable or auth is disabled.");
+  const checkAuth = async () => {
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        setIsAuthenticated(false);
+        setAuthChecking(false);
+        return;
       }
+      
+      const profile = await dataService.getUser();
+      if (profile) {
+        setUserProfile(profile);
+        setIsAuthenticated(true);
+      } else {
+        setIsAuthenticated(false);
+      }
+    } catch (error) {
+      console.error("Auth check failed", error);
+      setIsAuthenticated(false);
+    } finally {
+      setAuthChecking(false);
+    }
   };
 
   const handleUpdateProfile = (updated: UserProfile) => {
       setUserProfile(updated);
+  };
+
+  const handleLogout = async () => {
+    await dataService.logout();
+    setIsAuthenticated(false);
+    setAuthPage('login');
   };
 
   const renderView = () => {
@@ -75,11 +98,6 @@ const App: React.FC = () => {
         return <Dashboard />;
     }
   };
-
-  const handleLogout = async () => {
-    // For demo mode, just reload the page to reset state
-    window.location.reload();
-  }
 
   const MainContent = () => (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
@@ -125,9 +143,34 @@ const App: React.FC = () => {
     </div>
   );
 
+  if (authChecking) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-50">
+        <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+            <p className="text-gray-500 font-medium">Connecting to CRM...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <ToastProvider>
-        <MainContent />
+        {!isAuthenticated ? (
+            authPage === 'login' ? (
+                <LoginPage 
+                    onSwitchToSignup={() => setAuthPage('signup')} 
+                    onLogin={checkAuth} 
+                />
+            ) : (
+                <SignupPage 
+                    onSwitchToLogin={() => setAuthPage('login')} 
+                    onSignup={checkAuth} 
+                />
+            )
+        ) : (
+            <MainContent />
+        )}
     </ToastProvider>
   );
 };
