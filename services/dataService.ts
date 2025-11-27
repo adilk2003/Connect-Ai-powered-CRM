@@ -1,7 +1,8 @@
 
 import { Contact, Lead, Task, CalendarEvent, Document, Email, UserProfile } from '../types';
 
-const API_URL = 'http://localhost:5000/api';
+// Use environment variable for production, fallback to localhost for development
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 // Helper to handle API errors gracefully
 async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
