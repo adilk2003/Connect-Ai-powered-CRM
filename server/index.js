@@ -10,8 +10,8 @@ import crypto from 'crypto';
 dotenv.config();
 
 const app = express();
-// Changed default port to 3001 to avoid conflicts with macOS AirPlay (Port 5000)
-const PORT = process.env.PORT || 3001;
+// Changed default port to 10000 to match the user's running configuration
+const PORT = process.env.PORT || 10000;
 
 // Setup path for local database file
 const __filename = fileURLToPath(import.meta.url);
