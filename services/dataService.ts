@@ -1,10 +1,18 @@
+
 import { Contact, Lead, Task, CalendarEvent, Document, Email, UserProfile } from '../types';
 
+// Safe environment variable access
+const getEnvVar = (key: string): string | undefined => {
+  try {
+    return (import.meta as any).env?.[key];
+  } catch (e) {
+    return undefined;
+  }
+};
+
 // Use environment variable for production.
-// In development, default to '/api' which allows Vite to proxy to localhost:5000
-const API_URL = ((import.meta as any).env && (import.meta as any).env.VITE_API_URL) 
-    ? (import.meta as any).env.VITE_API_URL 
-    : '/api';
+// Default to the deployed Render backend to ensure connectivity.
+const API_URL = getEnvVar('VITE_API_URL') || 'https://connect-ai-powered-crm.onrender.com/api';
 
 // Helper to handle API errors gracefully
 async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -24,7 +32,7 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
     if (!contentType || contentType.indexOf("application/json") === -1) {
         // If we get HTML (like index.html) or plain text, the backend path is likely wrong or server is down
         const text = await response.text();
-        console.error(`API Error: Received non-JSON response from ${endpoint}`, text.substring(0, 100));
+        console.error(`API Error: Received non-JSON response from ${endpoint}. Preview: ${text.substring(0, 50)}...`);
         throw new Error("Unable to connect to server. Please ensure the backend is running.");
     }
 
@@ -49,15 +57,20 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
 export const dataService = {
   // --- AUTH ---
   login: async (email: string, password: string): Promise<{ user: UserProfile, token: string }> => {
-      const response = await fetch(`${API_URL}/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password })
-      });
+      let response;
+      try {
+        response = await fetch(`${API_URL}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+      } catch (error) {
+        throw new Error("Network error: Unable to reach authentication server. Is it running?");
+      }
       
       const contentType = response.headers.get("content-type");
       if (!contentType || contentType.indexOf("application/json") === -1) {
-         throw new Error("Unable to connect to authentication server.");
+         throw new Error("Server error: Received invalid response from authentication server (likely HTML).");
       }
 
       if (!response.ok) {
@@ -68,15 +81,20 @@ export const dataService = {
   },
 
   signup: async (name: string, email: string, password: string): Promise<{ user: UserProfile, token: string }> => {
-      const response = await fetch(`${API_URL}/auth/signup`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, email, password })
-      });
+      let response;
+      try {
+        response = await fetch(`${API_URL}/auth/signup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email, password })
+        });
+      } catch (error) {
+        throw new Error("Network error: Unable to reach authentication server. Is it running?");
+      }
 
       const contentType = response.headers.get("content-type");
       if (!contentType || contentType.indexOf("application/json") === -1) {
-         throw new Error("Unable to connect to authentication server.");
+         throw new Error("Server error: Received invalid response from authentication server.");
       }
 
       if (!response.ok) {
