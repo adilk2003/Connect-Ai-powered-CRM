@@ -1,4 +1,3 @@
-
 import { Contact, Lead, Task, CalendarEvent, Document, Email, UserProfile } from '../types';
 
 // Use environment variable for production.
@@ -20,6 +19,15 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
   try {
     const response = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
     
+    // Check if the response is actually JSON before parsing
+    const contentType = response.headers.get("content-type");
+    if (!contentType || contentType.indexOf("application/json") === -1) {
+        // If we get HTML (like index.html) or plain text, the backend path is likely wrong or server is down
+        const text = await response.text();
+        console.error(`API Error: Received non-JSON response from ${endpoint}`, text.substring(0, 100));
+        throw new Error("Unable to connect to server. Please ensure the backend is running.");
+    }
+
     if (response.status === 401) {
         // Unauthorized - clear token
         localStorage.removeItem('authToken');
@@ -46,6 +54,12 @@ export const dataService = {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password })
       });
+      
+      const contentType = response.headers.get("content-type");
+      if (!contentType || contentType.indexOf("application/json") === -1) {
+         throw new Error("Unable to connect to authentication server.");
+      }
+
       if (!response.ok) {
           const error = await response.json();
           throw new Error(error.message || 'Login failed');
@@ -59,6 +73,12 @@ export const dataService = {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, email, password })
       });
+
+      const contentType = response.headers.get("content-type");
+      if (!contentType || contentType.indexOf("application/json") === -1) {
+         throw new Error("Unable to connect to authentication server.");
+      }
+
       if (!response.ok) {
           const error = await response.json();
           throw new Error(error.message || 'Signup failed');
