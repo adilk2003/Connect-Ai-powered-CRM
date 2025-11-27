@@ -2,7 +2,8 @@
 import { Contact, Lead, Task, CalendarEvent, Document, Email, UserProfile } from '../types';
 
 // Use environment variable for production, fallback to localhost for development
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// Safely check import.meta.env to avoid "Cannot read properties of undefined" errors or TS errors
+const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000/api';
 
 // Helper to handle API errors gracefully
 async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
