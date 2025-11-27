@@ -9,6 +9,15 @@ export default defineConfig(({ mode }) => {
   
   return {
     plugins: [react()],
+    server: {
+      proxy: {
+        '/api': {
+          target: 'http://127.0.0.1:5000',
+          changeOrigin: true,
+          secure: false,
+        },
+      },
+    },
     define: {
       // This ensures that anywhere the code says "process.env.API_KEY",
       // Vite replaces it with the actual key string during the build.
